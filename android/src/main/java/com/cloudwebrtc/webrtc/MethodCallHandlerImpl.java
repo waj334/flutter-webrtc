@@ -8,6 +8,8 @@ import android.content.pm.PackageManager;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.Camera.CameraInfo;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
 import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.media.AudioAttributes;
@@ -47,6 +49,9 @@ import com.cloudwebrtc.webrtc.video.LocalVideoTrack;
 import com.twilio.audioswitch.AudioDevice;
 
 import org.webrtc.AudioTrack;
+import org.webrtc.Camera1Enumerator;
+import org.webrtc.Camera2Enumerator;
+import org.webrtc.CameraEnumerator;
 import org.webrtc.CryptoOptions;
 import org.webrtc.DtmfSender;
 import org.webrtc.EglBase;
@@ -1655,13 +1660,9 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
 
   public void getSources(Result result) {
     ConstraintsArray array = new ConstraintsArray();
-    String[] names = new String[Camera.getNumberOfCameras()];
 
-    for (int i = 0; i < Camera.getNumberOfCameras(); ++i) {
-      ConstraintsMap info = getCameraInfo(i);
-      if (info != null) {
-        array.pushMap(info);
-      }
+    for (ConstraintsMap info : getCameraSources()) {
+      array.pushMap(info);
     }
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -1837,6 +1838,92 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
     } else if (track.kind().equals("video")) {
       stream.removeTrack((VideoTrack) track.track);
       getUserMediaImpl.removeVideoCapturer(_trackId);
+    }
+  }
+
+  /**
+   * Lists the cameras, through whichever API is going to open them.
+   *
+   * Enumeration used to go through the deprecated Camera1 API while capture
+   * went through Camera2 -- see createVideoCapturer. The two disagree about
+   * what exists: Camera.getNumberOfCameras() counts the cameras built into the
+   * handset and nothing else, so a USB camera could be opened by name and yet
+   * never appeared in the list anybody picks from. They also disagree about
+   * names, since a Camera1 index is not a Camera2 id, and on a device where
+   * those differ an id from this list would open the wrong lens or none.
+   *
+   * Camera1 remains the fallback for a device whose Camera2 support libwebrtc
+   * will not use, which is the same condition capture falls back on.
+   */
+  private List<ConstraintsMap> getCameraSources() {
+    final List<ConstraintsMap> sources = new ArrayList<>();
+
+    if (Camera2Enumerator.isSupported(context)) {
+      final CameraEnumerator enumerator = new Camera2Enumerator(context);
+      final String[] names = enumerator.getDeviceNames();
+
+      for (int i = 0; i < names.length; i++) {
+        sources.add(getCamera2Info(enumerator, names[i], i));
+      }
+      return sources;
+    }
+
+    for (int i = 0; i < Camera.getNumberOfCameras(); ++i) {
+      ConstraintsMap info = getCameraInfo(i);
+      if (info != null) {
+        sources.add(info);
+      }
+    }
+    return sources;
+  }
+
+  /**
+   * One camera as Camera2 describes it.
+   *
+   * The deviceId is the enumerator's own name for it, which is what
+   * createVideoCapturer matches against -- so whatever is picked from this list
+   * is what gets opened.
+   *
+   * Facing is front, back, or external. A camera that is neither front nor back
+   * is one that is not part of the handset, which is what a USB camera is, and
+   * calling it "back" would put it behind a label that says where it is
+   * pointing when nothing knows.
+   */
+  private ConstraintsMap getCamera2Info(CameraEnumerator enumerator, String name, int index) {
+    final String facing =
+        enumerator.isFrontFacing(name) ? "front"
+            : enumerator.isBackFacing(name) ? "back"
+                : "external";
+
+    final ConstraintsMap params = new ConstraintsMap();
+    params.putString("label",
+            "Camera " + index + ", Facing " + facing + ", Orientation " + getSensorOrientation(name));
+    params.putString("deviceId", name);
+    params.putString("facing", facing);
+    params.putString("kind", "videoinput");
+    params.putString("groupId", "camera");
+    return params;
+  }
+
+  /**
+   * How far the sensor is rotated from the device's own upright, in degrees.
+   *
+   * Zero where it cannot be read, which is what an external camera usually
+   * reports anyway: it is not attached to the handset and does not turn with it.
+   */
+  private int getSensorOrientation(String cameraId) {
+    try {
+      final CameraManager manager =
+          (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+      if (manager == null) {
+        return 0;
+      }
+      final Integer orientation =
+          manager.getCameraCharacteristics(cameraId).get(CameraCharacteristics.SENSOR_ORIENTATION);
+      return orientation == null ? 0 : orientation;
+    } catch (Exception e) {
+      Logging.e(TAG, "reading the orientation of camera " + cameraId + " failed", e);
+      return 0;
     }
   }
 
