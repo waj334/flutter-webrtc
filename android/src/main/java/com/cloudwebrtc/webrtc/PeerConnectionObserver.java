@@ -518,18 +518,118 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
 
   @Override
   public void onAddTrack(RtpReceiver receiver, MediaStream[] mediaStreams) {
-    Log.d(TAG, "onAddTrack");
-    // for plan-b
-    for (MediaStream stream : mediaStreams) {
-      String streamId = stream.getId();
-      MediaStreamTrack track = receiver.track();
-      ConstraintsMap params = new ConstraintsMap();
-      params.putString("event", "onAddTrack");
-      params.putString("streamId", streamId);
-      params.putString("ownerTag", id);
-      params.putString("trackId", track.id());
+    try {
+      Log.d(TAG, "onAddTrack");
+      // for plan-b
+      for (MediaStream stream : mediaStreams) {
+        String streamId = stream.getId();
+        MediaStreamTrack track = receiver.track();
+        if (track == null) continue;
+        String trackId;
+        try {
+          trackId = track.id();
+        } catch (IllegalStateException e) {
+          Log.w(TAG, "onAddTrack: track already disposed: " + e.getMessage());
+          continue;
+        }
+        ConstraintsMap params = new ConstraintsMap();
+        params.putString("event", "onAddTrack");
+        params.putString("streamId", streamId);
+        params.putString("ownerTag", id);
+        params.putString("trackId", trackId);
 
-      String trackId = track.id();
+        ConstraintsMap trackInfo = new ConstraintsMap();
+        trackInfo.putString("id", trackId);
+        trackInfo.putString("label", track.kind());
+        trackInfo.putString("kind", track.kind());
+        trackInfo.putBoolean("enabled", track.enabled());
+        trackInfo.putString("readyState", track.state().toString());
+        trackInfo.putBoolean("remote", true);
+        params.putMap("track", trackInfo.toMap());
+        sendEvent(params);
+
+        if ("audio".equals(track.kind())) {
+          AudioSwitchManager.instance.start();
+        }
+      }
+
+      // For unified-plan
+      ConstraintsMap params = new ConstraintsMap();
+      ConstraintsArray streams = new ConstraintsArray();
+      for (int i = 0; i < mediaStreams.length; i++) {
+        MediaStream stream = mediaStreams[i];
+        streams.pushMap(new ConstraintsMap(mediaStreamToMap(stream)));
+      }
+
+      params.putString("event", "onTrack");
+      params.putArray("streams", streams.toArrayList());
+      Map<String, Object> trackMap = mediaTrackToMap(receiver.track());
+      if (trackMap != null) {
+        params.putMap("track", trackMap);
+      }
+      params.putMap("receiver", rtpReceiverToMap(receiver));
+
+      if (this.configuration.sdpSemantics == PeerConnection.SdpSemantics.UNIFIED_PLAN) {
+        // Register the track object of this callback's receiver, as
+        // onAddStream does for Plan B. Without it a renderer resolves the
+        // track through peerConnection.getTransceivers(), whose next call (from
+        // here, or any getTransceivers/getReceivers from Dart) disposes the
+        // RtpTransceivers of the previous one, their receivers' tracks and,
+        // with them, every sink attached to those tracks: the renderer stops
+        // receiving frames while the track keeps decoding. The receiver of this
+        // callback is not part of those lists, so its track object stays valid.
+        MediaStreamTrack receiverTrack = receiver.track();
+        if (receiverTrack != null) {
+          try {
+            String streamId = mediaStreams.length > 0 ? mediaStreams[0].getId() : "";
+            remoteTracks.put(receiverTrack.id(), receiverTrack);
+            remoteTracksByReceiver.put(receiver.id(), receiverTrack);
+            stateProvider.onRemoteTrackAdded(id, streamId, receiverTrack);
+          } catch (IllegalStateException e) {
+            Log.w(TAG, "onAddTrack: receiverTrack disposed during registration: " + e.getMessage());
+          }
+        }
+
+        try {
+          List<RtpTransceiver> transceivers = peerConnection.getTransceivers();
+          for (RtpTransceiver transceiver : transceivers) {
+            if (transceiver.getReceiver() != null && receiver.id().equals(transceiver.getReceiver().id())) {
+              String transceiverId = transceiver.getMid();
+              if (null == transceiverId) {
+                transceiverId = stateProvider.getNextStreamUUID();
+                this.transceivers.put(transceiverId, transceiver);
+              }
+              params.putMap("transceiver", transceiverToMap(transceiverId, transceiver));
+            }
+          }
+        } catch (IllegalStateException e) {
+          Log.w(TAG, "onAddTrack: transceivers error: " + e.getMessage());
+        }
+      }
+      sendEvent(params);
+    } catch (Throwable t) {
+      Log.w(TAG, "onAddTrack: caught unhandled error: ", t);
+    }
+  }
+
+  @Override
+  public void onRemoveTrack(RtpReceiver rtpReceiver) {
+    try {
+      Log.d(TAG, "onRemoveTrack");
+
+      MediaStreamTrack track = rtpReceiver.track();
+      if (track == null) return;
+      String trackId;
+      try {
+        trackId = track.id();
+      } catch (IllegalStateException e) {
+        Log.w(TAG, "onRemoveTrack: track already disposed: " + e.getMessage());
+        return;
+      }
+      MediaStreamTrack registered = remoteTracksByReceiver.remove(rtpReceiver.id());
+      if (registered != null) {
+        remoteTracks.remove(trackId, registered);
+      }
       ConstraintsMap trackInfo = new ConstraintsMap();
       trackInfo.putString("id", trackId);
       trackInfo.putString("label", track.kind());
@@ -537,81 +637,14 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
       trackInfo.putBoolean("enabled", track.enabled());
       trackInfo.putString("readyState", track.state().toString());
       trackInfo.putBoolean("remote", true);
+      ConstraintsMap params = new ConstraintsMap();
+      params.putString("event", "onRemoveTrack");
+      params.putString("trackId", trackId);
       params.putMap("track", trackInfo.toMap());
       sendEvent(params);
-
-      if ("audio".equals(track.kind())) {
-        AudioSwitchManager.instance.start();
-      }
+    } catch (Throwable t) {
+      Log.w(TAG, "onRemoveTrack: caught unhandled error: ", t);
     }
-
-    // For unified-plan
-    ConstraintsMap params = new ConstraintsMap();
-    ConstraintsArray streams = new ConstraintsArray();
-    for (int i = 0; i < mediaStreams.length; i++) {
-      MediaStream stream = mediaStreams[i];
-      streams.pushMap(new ConstraintsMap(mediaStreamToMap(stream)));
-    }
-
-    params.putString("event", "onTrack");
-    params.putArray("streams", streams.toArrayList());
-    params.putMap("track", mediaTrackToMap(receiver.track()));
-    params.putMap("receiver", rtpReceiverToMap(receiver));
-
-    if (this.configuration.sdpSemantics == PeerConnection.SdpSemantics.UNIFIED_PLAN) {
-      // Register the track object of this callback's receiver, as
-      // onAddStream does for Plan B. Without it a renderer resolves the
-      // track through peerConnection.getTransceivers(), whose next call (from
-      // here, or any getTransceivers/getReceivers from Dart) disposes the
-      // RtpTransceivers of the previous one, their receivers' tracks and,
-      // with them, every sink attached to those tracks: the renderer stops
-      // receiving frames while the track keeps decoding. The receiver of this
-      // callback is not part of those lists, so its track object stays valid.
-      MediaStreamTrack receiverTrack = receiver.track();
-      if (receiverTrack != null) {
-        String streamId = mediaStreams.length > 0 ? mediaStreams[0].getId() : "";
-        remoteTracks.put(receiverTrack.id(), receiverTrack);
-        remoteTracksByReceiver.put(receiver.id(), receiverTrack);
-        stateProvider.onRemoteTrackAdded(id, streamId, receiverTrack);
-      }
-
-      List<RtpTransceiver> transceivers = peerConnection.getTransceivers();
-      for (RtpTransceiver transceiver : transceivers) {
-        if (transceiver.getReceiver() != null && receiver.id().equals(transceiver.getReceiver().id())) {
-          String transceiverId = transceiver.getMid();
-          if (null == transceiverId) {
-            transceiverId = stateProvider.getNextStreamUUID();
-            this.transceivers.put(transceiverId,transceiver);
-          }
-          params.putMap("transceiver", transceiverToMap(transceiverId, transceiver));
-        }
-      }
-    }
-    sendEvent(params);
-  }
-
-  @Override
-  public void onRemoveTrack(RtpReceiver rtpReceiver) {
-    Log.d(TAG, "onRemoveTrack");
-
-    MediaStreamTrack track = rtpReceiver.track();
-    String trackId = track.id();
-    MediaStreamTrack registered = remoteTracksByReceiver.remove(rtpReceiver.id());
-    if (registered != null) {
-      remoteTracks.remove(trackId, registered);
-    }
-    ConstraintsMap trackInfo = new ConstraintsMap();
-    trackInfo.putString("id", trackId);
-    trackInfo.putString("label", track.kind());
-    trackInfo.putString("kind", track.kind());
-    trackInfo.putBoolean("enabled", track.enabled());
-    trackInfo.putString("readyState", track.state().toString());
-    trackInfo.putBoolean("remote", true);
-    ConstraintsMap params = new ConstraintsMap();
-    params.putString("event", "onRemoveTrack");
-    params.putString("trackId", track.id());
-    params.putMap("track", trackInfo.toMap());
-    sendEvent(params);
   }
 
   @Override
@@ -986,21 +1019,31 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
   @Nullable
   private Map<String, Object> mediaStreamToMap(MediaStream stream) {
     ConstraintsMap params = new ConstraintsMap();
-    params.putString("streamId", stream.getId());
-    params.putString("ownerTag", id);
-    ConstraintsArray audioTracks = new ConstraintsArray();
-    ConstraintsArray videoTracks = new ConstraintsArray();
+    try {
+      params.putString("streamId", stream.getId());
+      params.putString("ownerTag", id);
+      ConstraintsArray audioTracks = new ConstraintsArray();
+      ConstraintsArray videoTracks = new ConstraintsArray();
 
-    for (MediaStreamTrack track : stream.audioTracks) {
-      audioTracks.pushMap(new ConstraintsMap(mediaTrackToMap(track)));
+      for (MediaStreamTrack track : stream.audioTracks) {
+        Map<String, Object> trackMap = mediaTrackToMap(track);
+        if (trackMap != null) {
+          audioTracks.pushMap(new ConstraintsMap(trackMap));
+        }
+      }
+
+      for (MediaStreamTrack track : stream.videoTracks) {
+        Map<String, Object> trackMap = mediaTrackToMap(track);
+        if (trackMap != null) {
+          videoTracks.pushMap(new ConstraintsMap(trackMap));
+        }
+      }
+
+      params.putArray("audioTracks", audioTracks.toArrayList());
+      params.putArray("videoTracks", videoTracks.toArrayList());
+    } catch (Throwable t) {
+      Log.w(TAG, "mediaStreamToMap: error", t);
     }
-
-    for (MediaStreamTrack track : stream.videoTracks) {
-      videoTracks.pushMap(new ConstraintsMap(mediaTrackToMap(track)));
-    }
-
-    params.putArray("audioTracks", audioTracks.toArrayList());
-    params.putArray("videoTracks", videoTracks.toArrayList());
     return params.toMap();
   }
 
@@ -1008,11 +1051,19 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
   private Map<String, Object> mediaTrackToMap(MediaStreamTrack track) {
     ConstraintsMap info = new ConstraintsMap();
     if (track != null) {
-      info.putString("id", track.id());
-      info.putString("label", track.getClass() == VideoTrack.class ? "video" : "audio");
-      info.putString("kind", track.kind());
-      info.putBoolean("enabled", track.enabled());
-      info.putString("readyState", track.state().toString());
+      try {
+        info.putString("id", track.id());
+        info.putString("label", track.getClass() == VideoTrack.class ? "video" : "audio");
+        info.putString("kind", track.kind());
+        info.putBoolean("enabled", track.enabled());
+        info.putString("readyState", track.state().toString());
+      } catch (IllegalStateException e) {
+        Log.w(TAG, "mediaTrackToMap: track already disposed: " + e.getMessage());
+        return null;
+      } catch (Throwable t) {
+        Log.w(TAG, "mediaTrackToMap: error reading track", t);
+        return null;
+      }
     }
     return info.toMap();
   }
@@ -1029,33 +1080,63 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
 
   private Map<String, Object> rtpSenderToMap(RtpSender sender) {
     ConstraintsMap info = new ConstraintsMap();
-    info.putString("senderId", sender.id());
-    info.putBoolean("ownsTrack", true);
-    info.putMap("dtmfSender", dtmfSenderToMap(sender.dtmf(), sender.id()));
-    info.putMap("rtpParameters", rtpParametersToMap(sender.getParameters()));
-    info.putMap("track", mediaTrackToMap(sender.track()));
+    if (sender != null) {
+      try {
+        info.putString("senderId", sender.id());
+        info.putBoolean("ownsTrack", true);
+        info.putMap("dtmfSender", dtmfSenderToMap(sender.dtmf(), sender.id()));
+        info.putMap("rtpParameters", rtpParametersToMap(sender.getParameters()));
+        Map<String, Object> trackMap = mediaTrackToMap(sender.track());
+        if (trackMap != null) {
+          info.putMap("track", trackMap);
+        }
+      } catch (IllegalStateException e) {
+        Log.w(TAG, "rtpSenderToMap: sender already disposed: " + e.getMessage());
+      } catch (Throwable t) {
+        Log.w(TAG, "rtpSenderToMap error: ", t);
+      }
+    }
     return info.toMap();
   }
 
   private Map<String, Object> rtpReceiverToMap(RtpReceiver receiver) {
     ConstraintsMap info = new ConstraintsMap();
-    info.putString("receiverId", receiver.id());
-    info.putMap("rtpParameters", rtpParametersToMap(receiver.getParameters()));
-    info.putMap("track", mediaTrackToMap(receiver.track()));
+    if (receiver != null) {
+      try {
+        info.putString("receiverId", receiver.id());
+        info.putMap("rtpParameters", rtpParametersToMap(receiver.getParameters()));
+        Map<String, Object> trackMap = mediaTrackToMap(receiver.track());
+        if (trackMap != null) {
+          info.putMap("track", trackMap);
+        }
+      } catch (IllegalStateException e) {
+        Log.w(TAG, "rtpReceiverToMap: receiver already disposed: " + e.getMessage());
+      } catch (Throwable t) {
+        Log.w(TAG, "rtpReceiverToMap error: ", t);
+      }
+    }
     return info.toMap();
   }
 
   Map<String, Object> transceiverToMap(String transceiverId, RtpTransceiver transceiver) {
     ConstraintsMap info = new ConstraintsMap();
     info.putString("transceiverId", transceiverId);
-    if (transceiver.getMid() == null) {
-      info.putString("mid", "");
-    } else {
-      info.putString("mid", transceiver.getMid());
+    if (transceiver != null) {
+      try {
+        if (transceiver.getMid() == null) {
+          info.putString("mid", "");
+        } else {
+          info.putString("mid", transceiver.getMid());
+        }
+        info.putString("direction", transceiverDirectionString(transceiver.getDirection()));
+        info.putMap("sender", rtpSenderToMap(transceiver.getSender()));
+        info.putMap("receiver", rtpReceiverToMap(transceiver.getReceiver()));
+      } catch (IllegalStateException e) {
+        Log.w(TAG, "transceiverToMap: transceiver already disposed: " + e.getMessage());
+      } catch (Throwable t) {
+        Log.w(TAG, "transceiverToMap error: ", t);
+      }
     }
-    info.putString("direction", transceiverDirectionString(transceiver.getDirection()));
-    info.putMap("sender", rtpSenderToMap(transceiver.getSender()));
-    info.putMap("receiver", rtpReceiverToMap(transceiver.getReceiver()));
     return info.toMap();
   }
 
@@ -1274,19 +1355,28 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
     if (this.configuration.sdpSemantics != PeerConnection.SdpSemantics.UNIFIED_PLAN) {
       return null;
     }
-    MediaStreamTrack track = null;
-    List<RtpTransceiver> transceivers = peerConnection.getTransceivers();
-    for (RtpTransceiver transceiver : transceivers) {
-      RtpReceiver receiver = transceiver.getReceiver();
-      if (receiver != null) {
-        MediaStreamTrack receiverTrack = receiver.track();
-        if (receiverTrack != null && receiverTrack.id().equals(trackId)) {
-          track = receiverTrack;
-          break;
+    try {
+      MediaStreamTrack track = null;
+      List<RtpTransceiver> transceivers = peerConnection.getTransceivers();
+      for (RtpTransceiver transceiver : transceivers) {
+        RtpReceiver receiver = transceiver.getReceiver();
+        if (receiver != null) {
+          try {
+            MediaStreamTrack receiverTrack = receiver.track();
+            if (receiverTrack != null && receiverTrack.id().equals(trackId)) {
+              track = receiverTrack;
+              break;
+            }
+          } catch (IllegalStateException e) {
+            // Track or receiver disposed
+          }
         }
       }
+      return track;
+    } catch (Throwable t) {
+      Log.w(TAG, "getTransceiversTrack error: ", t);
+      return null;
     }
-    return track;
   }
 
   MediaStreamTrack getRemoteTrack(String trackId) {

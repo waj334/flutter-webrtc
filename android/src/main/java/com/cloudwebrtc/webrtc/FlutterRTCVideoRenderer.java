@@ -189,8 +189,12 @@ public class FlutterRTCVideoRenderer implements EventChannel.StreamHandler {
             videoTrack = videoTracks.isEmpty() ? null : videoTracks.get(0);
 
             for (VideoTrack track : videoTracks){
-                if (track.id().equals(trackId)){
-                    videoTrack = track;
+                try {
+                    if (track.id().equals(trackId)){
+                        videoTrack = track;
+                    }
+                } catch (IllegalStateException e) {
+                    // Track was disposed
                 }
             }
         }
@@ -227,11 +231,15 @@ public class FlutterRTCVideoRenderer implements EventChannel.StreamHandler {
             }
 
             this.videoTrack = videoTrack;
-            this.videoTrackId = videoTrack == null ? null : videoTrack.id();
+            try {
+                this.videoTrackId = videoTrack == null ? null : videoTrack.id();
+            } catch (IllegalStateException e) {
+                this.videoTrackId = null;
+            }
 
             if (videoTrack != null) {
                 try {
-                    Log.w(TAG, "FlutterRTCVideoRenderer.setVideoTrack, set video track to " + videoTrack.id());
+                    Log.w(TAG, "FlutterRTCVideoRenderer.setVideoTrack, set video track to " + this.videoTrackId);
                     tryAddRendererToVideoTrack();
                 } catch (Exception e) {
                     Log.e(TAG, "tryAddRendererToVideoTrack " + e);
