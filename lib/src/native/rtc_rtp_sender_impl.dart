@@ -130,6 +130,20 @@ class RTCRtpSenderNative extends RTCRtpSender {
     }
   }
 
+  /// Forces the underlying video encoder for this sender to emit an immediate
+  /// keyframe (IDR/IRAP with parameter sets) on the next encoded frame.
+  Future<void> generateKeyFrame([List<String>? rids]) async {
+    try {
+      await WebRTC.invokeMethod('rtpSenderGenerateKeyFrame', <String, dynamic>{
+        'peerConnectionId': _peerConnectionId,
+        'rtpSenderId': _id,
+        if (rids != null) 'rids': rids,
+      });
+    } on PlatformException catch (e) {
+      throw 'Unable to RTCRtpSenderNative::generateKeyFrame: ${e.message}';
+    }
+  }
+
   void removeTrackReference() {
     _track = null;
   }

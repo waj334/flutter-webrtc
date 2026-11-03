@@ -1607,6 +1607,44 @@ static void FlutterWebRTCApplyFieldTrials(void) {
     [sender setParameters:[self updateRtpParameters:sender.parameters with:parameters]];
 
     result(@{@"result" : @(YES)});
+  } else if ([@"rtpSenderGenerateKeyFrame" isEqualToString:call.method]) {
+    NSDictionary* argsMap = call.arguments;
+    NSString* peerConnectionId = argsMap[@"peerConnectionId"];
+    NSString* senderId = argsMap[@"rtpSenderId"];
+    NSArray<NSString*>* rids = argsMap[@"rids"];
+    RTCPeerConnection* peerConnection = self.peerConnections[peerConnectionId];
+    if (peerConnection == nil) {
+      result([FlutterError
+          errorWithCode:[NSString stringWithFormat:@"%@Failed", call.method]
+                message:@"Error: peerConnection not found!"
+                details:nil]);
+      return;
+    }
+    RTCRtpSender* sender = [self getRtpSenderById:peerConnection Id:senderId];
+    if (sender == nil) {
+      result([FlutterError errorWithCode:[NSString stringWithFormat:@"%@Failed", call.method]
+                                 message:@"Error: sender not found!"
+                                 details:nil]);
+      return;
+    }
+    SEL sel = NSSelectorFromString(@"generateKeyFrame:");
+    if ([sender respondsToSelector:sel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+      [sender performSelector:sel withObject:rids];
+#pragma clang diagnostic pop
+    } else {
+      RTCRtpParameters* params = sender.parameters;
+      for (RTCRtpEncodingParameters* enc in params.encodings) {
+        enc.isActive = NO;
+      }
+      [sender setParameters:params];
+      for (RTCRtpEncodingParameters* enc in params.encodings) {
+        enc.isActive = YES;
+      }
+      [sender setParameters:params];
+    }
+    result(nil);
   } else if ([@"rtpSenderReplaceTrack" isEqualToString:call.method]) {
     NSDictionary* argsMap = call.arguments;
     NSString* peerConnectionId = argsMap[@"peerConnectionId"];

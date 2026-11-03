@@ -1084,6 +1084,13 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         rtpSenderSetParameters(peerConnectionId, rtpSenderId, parameters, result);
         break;
       }
+      case "rtpSenderGenerateKeyFrame": {
+        String peerConnectionId = call.argument("peerConnectionId");
+        String rtpSenderId = call.argument("rtpSenderId");
+        List<String> rids = call.argument("rids");
+        rtpSenderGenerateKeyFrame(peerConnectionId, rtpSenderId, rids, result);
+        break;
+      }
       case "rtpSenderReplaceTrack": {
         String peerConnectionId = call.argument("peerConnectionId");
         String rtpSenderId = call.argument("rtpSenderId");
@@ -1622,7 +1629,11 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
   @Override
   public boolean putLocalTrack(String trackId, LocalTrack track) {
     synchronized (localTracks) {
-      localTracks.put(trackId, track);
+      if (track == null) {
+        localTracks.remove(trackId);
+      } else {
+        localTracks.put(trackId, track);
+      }
     }
     return true;
   }
@@ -2507,6 +2518,15 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
       resultError("rtpSenderSetParameters", "peerConnection is null", result);
     } else {
       pco.rtpSenderSetParameters(rtpSenderId, parameters, result);
+    }
+  }
+
+  public void rtpSenderGenerateKeyFrame(String peerConnectionId, String rtpSenderId, List<String> rids, Result result) {
+    PeerConnectionObserver pco = mPeerConnectionObservers.get(peerConnectionId);
+    if (pco == null || pco.getPeerConnection() == null) {
+      resultError("rtpSenderGenerateKeyFrame", "peerConnection is null", result);
+    } else {
+      pco.rtpSenderGenerateKeyFrame(rtpSenderId, rids, result);
     }
   }
 

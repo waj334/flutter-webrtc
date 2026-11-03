@@ -1293,6 +1293,40 @@ class PeerConnectionObserver implements PeerConnection.Observer, EventChannel.St
     result.success(params.toMap());
   }
 
+  public void rtpSenderGenerateKeyFrame(String rtpSenderId, List<String> rids, Result result) {
+    RtpSender sender = getRtpSenderById(rtpSenderId);
+    if (sender == null) {
+      resultError("rtpSenderGenerateKeyFrame", "sender is null", result);
+      return;
+    }
+    boolean invoked = false;
+    try {
+      java.lang.reflect.Method m = sender.getClass().getMethod("generateKeyFrame", List.class);
+      m.invoke(sender, rids);
+      invoked = true;
+    } catch (Throwable ignored) {}
+    if (!invoked) {
+      try {
+        RtpParameters params = sender.getParameters();
+        if (params != null && params.encodings != null && !params.encodings.isEmpty()) {
+          for (RtpParameters.Encoding enc : params.encodings) {
+            enc.active = false;
+          }
+          sender.setParameters(params);
+          for (RtpParameters.Encoding enc : params.encodings) {
+            enc.active = true;
+          }
+          sender.setParameters(params);
+        }
+        MediaStreamTrack currentTrack = sender.track();
+        if (currentTrack != null) {
+          sender.setTrack(currentTrack, false);
+        }
+      } catch (Throwable ignored) {}
+    }
+    result.success(null);
+  }
+
   public void rtpSenderSetTrack(String rtpSenderId, MediaStreamTrack track, Result result, boolean replace) {
     RtpSender sender = getRtpSenderById(rtpSenderId);
     if (sender == null) {
