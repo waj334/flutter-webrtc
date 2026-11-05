@@ -931,7 +931,11 @@ public class GetUserMediaImpl {
 
         VideoTrack track = pcFactory.createVideoTrack(trackId, primary.videoSource);
         mediaStream.addTrack(track);
-        stateProvider.putLocalTrack(track.id(), new LocalVideoTrack(track));
+        LocalTrack primaryLocalTrack = stateProvider.getLocalTrack(primaryTrackId);
+        LocalVideoTrack localVideoTrack = primaryLocalTrack instanceof LocalVideoTrack
+                ? (LocalVideoTrack) primaryLocalTrack
+                : new LocalVideoTrack(track);
+        stateProvider.putLocalTrack(track.id(), localVideoTrack);
 
         // TODO: extract into a helper method - same block (enabled, id, kind, label, readyState, remote) repeated in getUserAudio() and getUserVideo()
         ConstraintsMap trackParams = new ConstraintsMap();

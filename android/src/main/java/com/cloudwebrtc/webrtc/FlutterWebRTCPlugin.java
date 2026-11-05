@@ -70,7 +70,7 @@ public class FlutterWebRTCPlugin implements FlutterPlugin, ActivityAware, EventC
     }
 
     public LocalTrack getLocalTrack(String trackId) {
-        return methodCallHandler.getLocalTrack(trackId);
+        return methodCallHandler == null ? null : methodCallHandler.getLocalTrack(trackId);
     }
 
     public boolean putLocalTrack(String trackId, LocalTrack track) {
@@ -78,11 +78,11 @@ public class FlutterWebRTCPlugin implements FlutterPlugin, ActivityAware, EventC
     }
 
     public MediaStreamTrack getRemoteTrack(String trackId) {
-        return methodCallHandler.getRemoteTrack(trackId);
+        return methodCallHandler == null ? null : methodCallHandler.getRemoteTrack(trackId);
     }
 
     public PeerConnectionFactory getPeerConnectionFactory() {
-        return methodCallHandler.getPeerConnectionFactory();
+        return methodCallHandler == null ? null : methodCallHandler.getPeerConnectionFactory();
     }
 
     @Nullable
