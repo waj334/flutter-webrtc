@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class HighSpeedCamera2Capturer extends CameraCapturer {
   private final CameraManager cameraManager;
+  private final String cameraId;
 
   // Keep the measurement in the native capture path. WebRTC stats only expose frames after the
   // source adapter, so they cannot distinguish Camera2, the SurfaceTexture bridge, and WebRTC.
@@ -46,6 +47,33 @@ public final class HighSpeedCamera2Capturer extends CameraCapturer {
       Context context, String cameraName, CameraVideoCapturer.CameraEventsHandler eventsHandler) {
     super(cameraName, eventsHandler, new Camera2Enumerator(context));
     cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+    cameraId = cameraName;
+  }
+
+  public String getCameraId() {
+    return cameraId;
+  }
+
+  public CameraManager getCameraManager() {
+    return cameraManager;
+  }
+
+  /** Adds to the running session's request; see {@link CameraRequestTuner}. */
+  public void retune(CameraRequestTuner tuner, CameraRequestTuner.Done done) {
+    Object session;
+    try {
+      java.lang.reflect.Field f = CameraCapturer.class.getDeclaredField("currentSession");
+      f.setAccessible(true);
+      session = f.get(this);
+    } catch (ReflectiveOperationException e) {
+      done.done("Cannot reach the camera session: " + e);
+      return;
+    }
+    if (!(session instanceof HighSpeedCamera2Session)) {
+      done.done("The camera is not running");
+      return;
+    }
+    ((HighSpeedCamera2Session) session).retune(tuner, done);
   }
 
   @Override

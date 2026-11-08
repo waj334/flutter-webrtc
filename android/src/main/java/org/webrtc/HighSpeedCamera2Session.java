@@ -57,6 +57,7 @@ final class HighSpeedCamera2Session implements CameraSession {
   @Nullable private Surface surface;
   @Nullable private CameraCaptureSession captureSession;
   @Nullable private HandlerThread captureCallbackThread;
+  @Nullable private Handler captureCallbackHandler;
   private SessionState state = SessionState.RUNNING;
   private boolean firstFrameReported;
 
@@ -262,7 +263,7 @@ final class HighSpeedCamera2Session implements CameraSession {
         // cannot starve texture consumption and create camera backpressure.
         captureCallbackThread = new HandlerThread("HighSpeedCameraResults");
         captureCallbackThread.start();
-        Handler captureCallbackHandler = new Handler(captureCallbackThread.getLooper());
+        captureCallbackHandler = new Handler(captureCallbackThread.getLooper());
         highSpeedSession.setRepeatingBurst(
             highSpeedSession.createHighSpeedRequestList(requestBuilder.build()),
             new CameraCaptureCallback(),
@@ -299,6 +300,41 @@ final class HighSpeedCamera2Session implements CameraSession {
     }
   }
 
+  /**
+   * Sends the repeating request again with the app's additions. Constrained
+   * high-speed sessions take only bursts, and only the controls the camera
+   * allows at that speed, so a request it refuses is reported rather than hidden.
+   */
+  void retune(CameraRequestTuner tuner, CameraRequestTuner.Done done) {
+    cameraThreadHandler.post(() -> {
+      try {
+        if (state != SessionState.RUNNING || cameraDevice == null || surface == null
+            || !(captureSession instanceof CameraConstrainedHighSpeedCaptureSession)) {
+          done.done("The camera is not running");
+          return;
+        }
+        CaptureRequest.Builder requestBuilder =
+            cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+        requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, captureFpsRange);
+        requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+        requestBuilder.set(CaptureRequest.CONTROL_AE_LOCK, false);
+        chooseFocusMode(requestBuilder);
+        tuner.tune(requestBuilder, cameraCharacteristics, cameraId,
+            captureSize.getWidth(), captureSize.getHeight());
+        requestBuilder.addTarget(surface);
+        CameraConstrainedHighSpeedCaptureSession highSpeed =
+            (CameraConstrainedHighSpeedCaptureSession) captureSession;
+        highSpeed.setRepeatingBurst(
+            highSpeed.createHighSpeedRequestList(requestBuilder.build()),
+            new CameraCaptureCallback(), captureCallbackHandler);
+        done.done(null);
+      } catch (CameraAccessException | RuntimeException e) {
+        done.done("Camera request failed: " + e);
+      }
+    });
+  }
+
+
   private void chooseFocusMode(CaptureRequest.Builder requestBuilder) {
     int[] modes =
         cameraCharacteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
@@ -318,6 +354,7 @@ final class HighSpeedCamera2Session implements CameraSession {
     @Override
     public void onCaptureCompleted(
         CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+      CameraLensLog.onResult(result);
       Long sensorTimestampNs = result.get(CaptureResult.SENSOR_TIMESTAMP);
       HighSpeedCamera2Capturer.recordSensorFrame(
           sensorTimestampNs == null ? 0L : sensorTimestampNs);

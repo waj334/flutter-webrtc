@@ -38,6 +38,33 @@ class CameraUtils {
     }
   }
 
+  /// What the camera allows: the zoom range and whether it can be told where to focus.
+  ///
+  /// Also the zoom levels a camera app marks on its dial: each lens of the
+  /// cluster, and 2x.
+  ///
+  /// Android only. Anything else reports no zoom and no focus point.
+  static Future<({double min, double max, bool focus, List<double> stops})>
+      getZoomRange(MediaStreamTrack videoTrack) async {
+    if (!WebRTC.platformIsAndroid) {
+      return (min: 1.0, max: 1.0, focus: false, stops: const <double>[1.0]);
+    }
+    final r = await WebRTC.invokeMethod<Map<dynamic, dynamic>, dynamic>(
+      'mediaStreamTrackGetZoomRange',
+      <String, dynamic>{'trackId': videoTrack.id},
+    );
+    return (
+      min: (r?['min'] as num?)?.toDouble() ?? 1.0,
+      max: (r?['max'] as num?)?.toDouble() ?? 1.0,
+      focus: r?['focus'] == true,
+      stops:
+          (r?['stops'] as List?)?.map((e) => (e as num).toDouble()).toList() ??
+              const <double>[1.0],
+    );
+  }
+
+  /// Aims the focus at [point], given as fractions (0..1) of the upright picture
+  /// as it was captured, so unmirrored. Null lets the camera choose again.
   static Future<void> setFocusPoint(
       MediaStreamTrack videoTrack, Point<double>? point) async {
     if (WebRTC.platformIsAndroid || WebRTC.platformIsIOS) {

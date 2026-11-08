@@ -73,7 +73,18 @@ class CameraEventsHandler implements CameraVideoCapturer.CameraEventsHandler {
     public void onFirstFrameAvailable() {
         Log.d(TAG, "CameraEventsHandler.onFirstFrameAvailable");
         state = CameraState.OPENED;
+        final Runnable started = onStarted;
+        if (started != null) {
+            started.run();
+        }
     }
+
+    /**
+     * Run each time a camera session produces its first frame: when a camera is
+     * opened and again after it is switched or restarted, each of which starts
+     * a session that knows nothing of what the app has asked of the last.
+     */
+    public volatile Runnable onStarted;
 
     // Callback invoked when camera closed.
     @Override

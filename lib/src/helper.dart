@@ -100,6 +100,10 @@ class Helper {
   static Future<void> setZoom(MediaStreamTrack videoTrack, double zoomLevel) =>
       CameraUtils.setZoom(videoTrack, zoomLevel);
 
+  static Future<({double min, double max, bool focus, List<double> stops})>
+      getZoomRange(MediaStreamTrack videoTrack) =>
+          CameraUtils.getZoomRange(videoTrack);
+
   static Future<void> setFocusMode(
           MediaStreamTrack videoTrack, CameraFocusMode focusMode) =>
       CameraUtils.setFocusMode(videoTrack, focusMode);

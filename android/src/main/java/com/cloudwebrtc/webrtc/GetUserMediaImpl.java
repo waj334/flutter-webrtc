@@ -831,7 +831,16 @@ public class GetUserMediaImpl {
                 ? videoConstraintsMandatory.getInt("minFrameRate")
                 : DEFAULT_FPS;
 
+        // The constrained high-speed session is opt-in. It reaches 60 fps by
+        // pinning one lens, so zooming never hands over from the ultrawide to the
+        // main to the telephoto the way a camera app does. A normal session
+        // keeps the camera system's lens choice.
+        final boolean wantsHighSpeed = videoConstraintsMap != null
+                && videoConstraintsMap.hasKey("highSpeed")
+                && videoConstraintsMap.getType("highSpeed") == ObjectType.Boolean
+                && videoConstraintsMap.getBoolean("highSpeed");
         if (videoCapturer instanceof Camera2Capturer
+                && wantsHighSpeed
                 && HighSpeedCamera2Capturer.isSupported(
                 applicationContext, deviceId, targetWidth, targetHeight, targetFps)) {
             Log.i(TAG, "Using constrained high-speed Camera2 capturer for "
@@ -867,13 +876,22 @@ public class GetUserMediaImpl {
         info.cameraEventsHandler = cameraEventsHandler;
         info.videoSource = videoSource;
         info.facingMode = facingMode;
+        // Registered before the camera starts, not after: waiting for it to open
+        // waits for its first frame, and the hook below is for that frame.
+        final String trackId = stateProvider.getNextTrackUUID();
+        mVideoCapturers.put(trackId, info);
+        // A normal session lets the camera pick its own rate within a range such
+        // as 15-60, and indoors that settles at 30. Once a session is running,
+        // ask for the rate that was asked for -- see CameraUtils.onCameraStarted.
+        cameraEventsHandler.onStarted = () -> {
+            com.cloudwebrtc.webrtc.video.camera.CameraUtils utils = cameraUtils;
+            if (utils != null) utils.onCameraStarted(trackId);
+        };
+
         videoCapturer.startCapture(targetWidth, targetHeight, targetFps);
 
         cameraEventsHandler.waitForCameraOpen();
 
-
-        String trackId = stateProvider.getNextTrackUUID();
-        mVideoCapturers.put(trackId, info);
         mSurfaceTextureHelpers.put(trackId, surfaceTextureHelper);
 
         Log.d(TAG, "Target: " + targetWidth + "x" + targetHeight + "@" + targetFps + ", Actual: " + info.width + "x" + info.height + "@" + info.fps);
@@ -1180,6 +1198,12 @@ public class GetUserMediaImpl {
         public String primaryTrackId;
         /** Facing mode resolved at camera open time: "user", "environment", or null if unknown. */
         public String facingMode;
+    }
+
+    private volatile com.cloudwebrtc.webrtc.video.camera.CameraUtils cameraUtils;
+
+    public void setCameraUtils(com.cloudwebrtc.webrtc.video.camera.CameraUtils utils) {
+        this.cameraUtils = utils;
     }
 
     public VideoCapturerInfoEx getCapturerInfo(String trackId) {

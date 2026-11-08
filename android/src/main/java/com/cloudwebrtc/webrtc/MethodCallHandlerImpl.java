@@ -268,6 +268,7 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
     getUserMediaImpl = new GetUserMediaImpl(this, context);
 
     cameraUtils = new CameraUtils(getUserMediaImpl, activity);
+    getUserMediaImpl.setCameraUtils(cameraUtils);
 
     frameCryptor = new FlutterRTCFrameCryptor(this);
 
@@ -830,6 +831,11 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         String trackId = call.argument("trackId");
         double zoomLevel = call.argument("zoomLevel");
         cameraUtils.setZoom(trackId, zoomLevel, result);
+        break;
+      }
+      case "mediaStreamTrackGetZoomRange": {
+        String trackId = call.argument("trackId");
+        cameraUtils.getZoomRange(trackId, result);
         break;
       }
       case "mediaStreamTrackSetFocusMode": {
