@@ -125,6 +125,9 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
       findHtmlView()?.srcObject = null;
       _audioElement?.srcObject = null;
       _srcObject = null;
+      _videoStream = null;
+      _audioStream = null;
+      value = RTCVideoValue.empty;
       return;
     }
 
@@ -162,6 +165,9 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
     var videoElement = findHtmlView();
     if (null != videoElement) {
       videoElement.srcObject = _videoStream;
+      if (_videoStream != null) {
+        unawaited(videoElement.play().toDart.catchError((_) => null));
+      }
       _applyDefaultVideoStyles(findHtmlView()!);
     }
 
@@ -173,6 +179,9 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
       findHtmlView()?.srcObject = null;
       _audioElement?.srcObject = null;
       _srcObject = null;
+      _videoStream = null;
+      _audioStream = null;
+      value = RTCVideoValue.empty;
       return;
     }
 
@@ -212,6 +221,9 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
     var videoElement = findHtmlView();
     if (null != videoElement) {
       videoElement.srcObject = _videoStream;
+      if (_videoStream != null) {
+        unawaited(videoElement.play().toDart.catchError((_) => null));
+      }
       _applyDefaultVideoStyles(findHtmlView()!);
     }
 
@@ -296,6 +308,10 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
       ..setAttribute('x-webkit-airplay', 'deny');
 
     _applyDefaultVideoStyles(element);
+
+    if (_videoStream != null) {
+      unawaited(element.play().toDart.catchError((_) => null));
+    }
 
     _subscriptions.add(
       element.onCanPlay.listen((dynamic _) {

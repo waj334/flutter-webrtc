@@ -58,10 +58,12 @@ class RTCVideoRenderer extends ValueNotifier<RTCVideoValue>
     }
     if (textureId == null) throw 'Call initialize before setting the stream';
     _srcObject = stream;
+    final trackId = stream?.getVideoTracks().firstOrNull?.id;
     WebRTC.invokeMethod('videoRendererSetSrcObject', <String, dynamic>{
       'textureId': textureId,
       'streamId': stream?.id ?? '',
-      'ownerTag': stream?.ownerTag ?? ''
+      'ownerTag': stream?.ownerTag ?? '',
+      'trackId': trackId ?? '0',
     }).then((_) {
       value = (stream == null)
           ? RTCVideoValue.empty
