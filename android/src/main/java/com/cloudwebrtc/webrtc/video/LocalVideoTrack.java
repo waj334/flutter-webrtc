@@ -62,18 +62,23 @@ public class LocalVideoTrack extends LocalTrack implements VideoProcessor {
             VideoFrame frame = videoFrame;
             synchronized (processors) {
                 for (ExternalVideoFrameProcessing processor : processors) {
+                    if (frame == null) {
+                        break;
+                    }
                     VideoFrame processed = processor.onFrame(frame);
                     // Release a frame made by an earlier processor once it is
-                    // replaced. The capturer releases the original frame.
+                    // replaced or dropped. The capturer releases the original frame.
                     if (processed != frame && frame != videoFrame) {
                         frame.release();
                     }
                     frame = processed;
                 }
             }
-            sink.onFrame(frame);
-            if (frame != videoFrame) {
-                frame.release();
+            if (frame != null) {
+                sink.onFrame(frame);
+                if (frame != videoFrame) {
+                    frame.release();
+                }
             }
         }
     }
